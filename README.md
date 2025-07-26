@@ -1,3 +1,5 @@
+**[TRY OUT THE DEPLOYED PROJECT](https://objectdetectionrealtime.streamlit.app/)**
+
 # YOLOv8 Object Detection with Streamlit
 
 This project provides an interactive web application built with [Streamlit](https://streamlit.io/) for real-time object detection using [YOLOv8](https://github.com/ultralytics/ultralytics). It supports detection on images, videos, and live webcam feeds.

@@ -1,10 +1,9 @@
 import streamlit as st
-import cv2
 import torch
 from detector import ObjectDetector
 from utils import draw_boxes
-import time
-import os
+import av
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
 st.set_page_config(page_title="Webcam Detection", page_icon="📸", layout="wide")
 st.title("Webcam Live Detection")
@@ -36,7 +35,7 @@ selected_options = st.sidebar.multiselect("What to detect", options, key='multis
 if selected_options != st.session_state.selections_cam:
     if "All classes" in selected_options and len(selected_options) > 1:
         st.session_state.selections_cam = ["All classes"]
-    elif len(selected_options) > 1 and "All classes" in selected_options:
+    elif len(selected_options) > 1 and "All classes" in st.session_state:
         st.session_state.selections_cam.remove("All classes")
     elif not selected_options:
         st.session_state.selections_cam = ["All classes"]
@@ -47,63 +46,34 @@ selected_class_ids = None
 if "All classes" not in st.session_state.selections_cam:
     selected_class_ids = [k for k, v in detector.names.items() if v in st.session_state.selections_cam]
 
+# This class processes the video frames
+class VideoTransformer(VideoTransformerBase):
+    def __init__(self):
+        self.detector = detector
+        self.confidence_threshold = confidence_threshold
+        self.selected_class_ids = selected_class_ids
+
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        # Convert the frame to a numpy array
+        img = frame.to_ndarray(format="bgr24")
+
+        # Perform detection
+        results = self.detector.detect(img, conf_threshold=self.confidence_threshold, classes=self.selected_class_ids)
+        processed_img = draw_boxes(img, results, self.detector.names)
+
+        # Return the processed frame
+        return av.VideoFrame.from_ndarray(processed_img, format="bgr24")
+
 # --- Main Page ---
 st.info(f"Model: **{selected_model}** | Device: **{next(detector.model.model.parameters()).device}**")
-run = st.checkbox('Start Webcam')
 
-if run:
-    record_video = st.checkbox('Record Video')
-    FRAME_WINDOW = st.image([])
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    
-    st.sidebar.subheader("Performance")
-    fps_placeholder = st.sidebar.empty()
-    prev_time = time.time()
+webrtc_streamer(
+    key="webcam",
+    video_transformer_factory=VideoTransformer,
+    media_stream_constraints={"video": True, "audio": False},
+)
 
-    while run:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Failed to grab frame from webcam. Please check camera connection.")
-            break
-            
-        curr_time = time.time()
-        fps = 1 / (curr_time - prev_time)
-        prev_time = curr_time
-        fps_placeholder.markdown(f"**FPS:** `{fps:.2f}`")
+st.info("Click the 'START' button above to begin detection. You may need to grant camera permissions in your browser.")
 
-        # Recording logic
-        if record_video and 'is_recording' not in st.session_state:
-            st.session_state.is_recording = True
-            
-            # --- This is the fix: Save to the parent directory ---
-            project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-            filename = os.path.join(project_dir, f"recording_{time.strftime('%Y%m%d_%H%M%S')}.avi")
-            
-            st.session_state.video_filename = filename
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            record_fps = 20.0
-            frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-            st.session_state.video_writer = cv2.VideoWriter(filename, fourcc, record_fps, frame_size)
-            st.toast(f"🔴 Recording started!")
-
-        if not record_video and 'is_recording' in st.session_state:
-            st.session_state.video_writer.release()
-            del st.session_state.is_recording
-            st.toast(f"⚫ Recording stopped! Saved as `{os.path.basename(st.session_state.video_filename)}`.")
-
-        results = detector.detect(frame, conf_threshold=confidence_threshold, classes=selected_class_ids)
-        processed_frame = draw_boxes(frame, results, detector.names)
-
-        if record_video and 'is_recording' in st.session_state:
-            st.session_state.video_writer.write(processed_frame)
-
-        FRAME_WINDOW.image(processed_frame, channels='BGR')
-    
-    cap.release()
-    if 'is_recording' in st.session_state:
-        st.session_state.video_writer.release()
-        del st.session_state.is_recording
-else:
-    st.info("Check the 'Start Webcam' box to begin detection.")
+if 'cpu' in str(next(detector.model.model.parameters()).device):
+    st.warning("Note: The model is running on CPU, so you may experience low FPS. For a smoother live feed, a GPU is recommended.", icon="⚙️")

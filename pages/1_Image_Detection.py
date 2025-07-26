@@ -5,7 +5,6 @@ from detector import ObjectDetector
 from utils import draw_boxes
 from PIL import Image
 import numpy as np
-import os
 
 st.set_page_config(page_title="Image Detection", page_icon="🖼️", layout="wide")
 st.title("Image Object Detection")
@@ -37,7 +36,7 @@ selected_options = st.sidebar.multiselect("What to detect", options, key='multis
 if selected_options != st.session_state.selections_img:
     if "All classes" in selected_options and len(selected_options) > 1:
         st.session_state.selections_img = ["All classes"]
-    elif len(selected_options) > 1 and "All classes" in selected_options:
+    elif len(selected_options) > 1 and "All classes" in st.session_state:
         st.session_state.selections_img.remove("All classes")
     elif not selected_options:
         st.session_state.selections_img = ["All classes"]
@@ -56,23 +55,15 @@ if image_file:
     image = Image.open(image_file)
     frame = np.array(image)
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-    
+
     with st.spinner("Processing image..."):
         results = detector.detect(frame, conf_threshold=confidence_threshold, classes=selected_class_ids)
         processed_frame = draw_boxes(frame, results, detector.names)
         st.image(processed_frame, channels="BGR", caption="Processed Image", use_container_width=True)
-    
-    st.success("Processing complete!")
 
-    save_button = st.button("Save Image", key="save_image_button")
-    if save_button:
-        base, ext = os.path.splitext(image_file.name)
-        output_filename = f"{base}_processed.png"
-        
-        # --- This is the fix: Save to the parent directory ---
-        project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        output_path = os.path.join(project_dir, output_filename)
-        cv2.imwrite(output_path, processed_frame)
-        st.success(f"Image saved as {output_filename} in your main project folder.")
+    st.success("Processing complete!")
 else:
     st.info("Upload an image to get started.")
+
+if 'cpu' in str(next(detector.model.model.parameters()).device):
+    st.warning("Note: The model is running on CPU. Image processing may take some time, especially with larger models. A GPU is recommended for faster performance.", icon="⚙️")

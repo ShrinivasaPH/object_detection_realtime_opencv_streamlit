@@ -6,3 +6,5 @@ Pillow
 streamlit-webrtc
 cv2
 numpy
+ultralytics
+torch
